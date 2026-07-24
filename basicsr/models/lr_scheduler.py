@@ -52,6 +52,8 @@ def get_position_from_periods(iteration, cumulative_period):
     for i, period in enumerate(cumulative_period):
         if iteration <= period:
             return i
+    raise ValueError(f'Current iteration {iteration} exceeds the total cumulative period {cumulative_period[-1]}. '
+                     f'Please check the scheduler periods setting in your YAML config.')
 
 
 class CosineAnnealingRestartLR(_LRScheduler):

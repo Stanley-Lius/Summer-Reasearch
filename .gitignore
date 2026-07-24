@@ -5,6 +5,8 @@ results/*
 tb_logger/*
 wandb/*
 tmp/*
+.agents/
+SIDD/
 
 docs/api
 scripts/__init__.py
@@ -111,7 +113,10 @@ celerybeat-schedule
 
 # Environments
 .env
+mcp.json
+.mcp.json
 .venv
+
 env/
 venv/
 ENV/
@@ -130,3 +135,18 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+# Large files and datasets
+dataset/
+datasets/
+*.h5
+*.state
+.state
+
+# Privacy information and agent config files
+agent_config.yaml
+agent_config.json
+.agents/
+mcp.json
+.mcp.json
+

@@ -1,0 +1,47 @@
+# general settings
+name: test_IrregularCGNet_SIDD
+model_type: CGNetModel
+scale: 1
+num_gpu: 1
+dist: false
+
+# dataset and data loader settings
+datasets:
+  test:
+    name: SIDD_Val
+    type: PairedImageDataset
+    dataroot_gt: ./datasets/SIDD/val/gt_crops.lmdb
+    dataroot_lq: ./datasets/SIDD/val/input_crops.lmdb
+    io_backend:
+      type: lmdb
+
+# network structures
+network_g:
+  type: IrregularCGNet
+  img_channel: 3
+  width: 16
+  middle_blk_num: 10
+  enc_blk_nums: [2, 2, 4, 6]
+  dec_blk_nums: [2, 2, 2, 2]
+
+# path
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+
+# validation settings
+val:
+  save_img: false
+  suffix: ~
+  rgb2bgr: true
+  use_image: false
+  window_size: 8
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: false

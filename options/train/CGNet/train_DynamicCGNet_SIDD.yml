@@ -1,0 +1,102 @@
+# GENERATE TIME: Wed Jul 15 20:32:55 2026
+# CMD:
+# basicsr/train.py -opt=/media/stanley/AA5E237A5E233F07/BasicSR/options/train/CGNet/train_DynamicCGNet_SIDD.yml
+
+# general settings
+name: train_OmniDirDynamicCGNet_SIDD_multiFeaturemaps
+model_type: CGNetModel
+scale: 1
+num_gpu: 1
+dist: false
+manual_seed: 100
+
+# dataset and data loader settings
+datasets:
+  train:
+    name: SIDD_Train
+    type: PairedImageDataset
+    dataroot_gt: ./datasets/SIDD/train/gt_crops.lmdb
+    dataroot_lq: ./datasets/SIDD/train/input_crops.lmdb
+    filename_tmpl: '{}'
+    io_backend:
+      type: lmdb
+
+    gt_size: 128
+    use_hflip: true
+    use_rot: true
+
+    # data loader
+    use_shuffle: true
+    num_worker_per_gpu: 4
+    batch_size_per_gpu: 4
+    dataset_enlarge_ratio: 1
+    prefetch_mode: ~
+
+  val:
+    name: SIDD_Val
+    type: PairedImageDataset
+    dataroot_gt: ./datasets/SIDD/val/gt_crops.lmdb
+    dataroot_lq: ./datasets/SIDD/val/input_crops.lmdb
+    io_backend:
+      type: lmdb
+
+# network structures
+network_g:
+  type: OmniDirDynamicCGNet
+  img_channel: 3
+  width: 32
+  middle_blk_num: 10
+  enc_blk_nums: [2, 2, 4, 6]
+  dec_blk_nums: [2, 2, 2, 2]
+
+# path
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+  resume_state: /media/stanley/AA5E237A5E233F07/BasicSR/experiments/train_OmniDirDynamicCGNet_SIDD_multiFeaturemaps/training_states/140000.state
+# training settings
+train:
+  total_iter: 400000
+  warmup_iter: -1
+  use_grad_clip: true
+  grad_clip_norm: 0.01
+
+  scheduler:
+    type: CosineAnnealingRestartLR
+    periods: [400000]
+    restart_weights: [1]
+    eta_min: !!float 1e-7
+
+  mixing_augs:
+    mixup: true
+    mixup_beta: 1.2
+    use_identity: true
+
+  optim_g:
+    type: AdamW
+    lr: !!float 1e-3
+    weight_decay: 0
+    betas: [0.9, 0.9]
+
+  # losses
+  pixel_opt:
+    type: L1Loss
+    loss_weight: 1
+    reduction: mean
+
+# validation settings
+val:
+  window_size: 8
+  val_freq: !!float 1e3
+  save_img: false
+  rgb2bgr: true
+  use_image: false
+
+# logging settings
+logger:
+  print_freq: 100
+  save_checkpoint_freq: !!float 2e4
+  use_tb_logger: true
+  wandb:
+    project: ~
+    resume_id: ~
