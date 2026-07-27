@@ -1,4 +1,4 @@
-name: test_OmniDirDynamicCGNet_doubleGate_SIDD
+name: test_OmniDirDynamicCGNet_doubleGate_0727_SIDD
 model_type: CGNetModel
 scale: 1
 num_gpu: 1
@@ -8,8 +8,8 @@ datasets:
   test_1:
     name: SIDD_Val
     type: PairedImageDataset
-    dataroot_gt: ./datasets/SIDD/val/gt_crops.lmdb
-    dataroot_lq: ./datasets/SIDD/val/input_crops.lmdb
+    dataroot_gt: ./SIDD/val/gt_crops.lmdb
+    dataroot_lq: ./SIDD/val/input_crops.lmdb
     io_backend:
       type: lmdb
 

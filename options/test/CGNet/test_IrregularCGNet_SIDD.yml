@@ -1,6 +1,6 @@
 # general settings
-name: test_IrregularCGNet_SIDD
-model_type: CGNetModel
+name: test_TrueCGNet_SIDD
+model_type: ImageRestorationModel
 scale: 1
 num_gpu: 1
 dist: false
@@ -10,23 +10,24 @@ datasets:
   test:
     name: SIDD_Val
     type: PairedImageDataset
-    dataroot_gt: ./datasets/SIDD/val/gt_crops.lmdb
-    dataroot_lq: ./datasets/SIDD/val/input_crops.lmdb
+    dataroot_gt: ./SIDD/val/gt_crops.lmdb
+    dataroot_lq: ./SIDD/val/input_crops.lmdb
     io_backend:
       type: lmdb
 
 # network structures
 network_g:
-  type: IrregularCGNet
+  type: CascadedGazeStandalone
   img_channel: 3
-  width: 16
+  width: 60
   middle_blk_num: 10
   enc_blk_nums: [2, 2, 4, 6]
   dec_blk_nums: [2, 2, 2, 2]
+  GCE_CONVS_nums: [3,3,2,2]
 
 # path
 path:
-  pretrain_network_g: ~
+  pretrain_network_g: experiments/pretrained_models/net_g_280000.pth
   strict_load_g: true
 
 # validation settings

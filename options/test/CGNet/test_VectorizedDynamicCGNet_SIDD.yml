@@ -8,8 +8,8 @@ datasets:
   test_1:
     name: SIDD_Val
     type: PairedImageDataset
-    dataroot_gt: ./datasets/SIDD/val/gt_crops.lmdb
-    dataroot_lq: ./datasets/SIDD/val/input_crops.lmdb
+    dataroot_gt: ./SIDD/val/gt_crops.lmdb
+    dataroot_lq: ./SIDD/val/input_crops.lmdb
     io_backend:
       type: lmdb
 
@@ -26,7 +26,7 @@ network_g:
 
 # path
 path:
-  pretrain_network_g: ~ # fill in with experiments/train_VectorizedDynamicCGNet_SIDD/models/net_g_latest.pth after training
+  pretrain_network_g: experiments/train_VectorizedDynamicCGNet_SIDD/models/net_g_latest.pth
   strict_load_g: true
 
 # validation settings
