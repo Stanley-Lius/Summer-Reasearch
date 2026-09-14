@@ -3,7 +3,7 @@
 # basicsr/train.py -opt=/media/stanley/AA5E237A5E233F07/BasicSR/options/train/CGNet/train_DynamicCGNet_SIDD.yml
 
 # general settings
-name: train_OmniDirDynamicCGNet_SIDD_multiFeaturemaps_big
+name: train_CGNet_SIDD
 model_type: CGNetModel
 scale: 1
 num_gpu: 1
@@ -15,34 +15,34 @@ datasets:
   train:
     name: SIDD_Train
     type: PairedImageDataset
-    dataroot_gt: ./datasets/SIDD/train/gt_crops.lmdb
-    dataroot_lq: ./datasets/SIDD/train/input_crops.lmdb
+    dataroot_gt: SIDD/train/gt_crops.lmdb
+    dataroot_lq: SIDD/train/input_crops.lmdb
     filename_tmpl: '{}'
     io_backend:
       type: lmdb
 
-    gt_size: 256
+    gt_size: 128
     use_hflip: true
     use_rot: true
 
     # data loader
     use_shuffle: true
     num_worker_per_gpu: 4
-    batch_size_per_gpu: 4
+    batch_size_per_gpu: 12
     dataset_enlarge_ratio: 1
     prefetch_mode: ~
 
   val:
     name: SIDD_Val
     type: PairedImageDataset
-    dataroot_gt: ./datasets/SIDD/val/gt_crops.lmdb
-    dataroot_lq: ./datasets/SIDD/val/input_crops.lmdb
+    dataroot_gt: SIDD/val/gt_crops.lmdb
+    dataroot_lq: SIDD/val/input_crops.lmdb
     io_backend:
       type: lmdb
 
 # network structures
 network_g:
-  type: OmniDirDynamicCGNet
+  type: TrueCascadeCGNet
   img_channel: 3
   width: 60
   middle_blk_num: 10
@@ -94,7 +94,7 @@ val:
 # logging settings
 logger:
   print_freq: 100
-  save_checkpoint_freq: !!float 1e5
+  save_checkpoint_freq: !!float 5e4
   use_tb_logger: true
   wandb:
     project: ~
