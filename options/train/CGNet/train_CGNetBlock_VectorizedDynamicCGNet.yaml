@@ -1,0 +1,107 @@
+# general settings
+name: train_CascadedGazeEncoderVectorizedDynamicCGNet_smallLr_PSNRloss_mixup_SIDD_5060
+model_type: CGNetModel
+scale: 1
+num_gpu: 1
+dist: false
+manual_seed: 100
+
+# dataset and data loader settings
+datasets:
+  train:
+    name: SIDD_Train
+    type: PairedImageDataset
+    dataroot_gt: ./SIDD/train/gt_crops.lmdb
+    dataroot_lq: ./SIDD/train/input_crops.lmdb
+    filename_tmpl: '{}'
+    io_backend:
+      type: lmdb
+
+    gt_size: 192
+    use_hflip: true
+    use_rot: true
+
+    use_shuffle: true
+    num_worker_per_gpu: 4
+    batch_size_per_gpu: 6
+    dataset_enlarge_ratio: 1
+    prefetch_mode: ~
+
+  val:
+    name: SIDD_Val
+    type: PairedImageDataset
+    dataroot_gt: ./SIDD/val/gt_crops.lmdb
+    dataroot_lq: ./SIDD/val/input_crops.lmdb
+    io_backend:
+      type: lmdb
+
+# network structures
+network_g:
+  type: CascadedGazeEncoderVectorizedDynamicCGNet
+  img_channel: 3
+  width: 60
+  middle_blk_num: 10
+  enc_blk_nums: [2, 2, 4, 6]
+  dec_blk_nums: [2, 2, 2, 2]
+  GCE_CONVS_nums: [2, 2, 3, 3]
+  DW_Expand: 2
+  FFN_Expand: 2
+  drop_out_rate: 0.0
+
+# path
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+  resume_state: ~
+
+# training settings
+train:
+  total_iter: 400000
+  warmup_iter: -1
+  use_grad_clip: true
+  grad_clip_norm: 0.01
+
+  scheduler:
+    type: CosineAnnealingRestartLR
+    periods: [400000]
+    restart_weights: [1]
+    eta_min: !!float 1e-7
+
+  mixing_augs:
+    mixup: true
+    mixup_beta: 1.2
+    use_identity: true
+
+  optim_g:
+    type: AdamW
+    lr: !!float 2e-4
+    weight_decay: 0
+    betas: [0.9, 0.9]
+
+  pixel_opt:
+    type: PSNRLoss
+    loss_weight: 1
+    reduction: mean
+
+# validation settings
+val:
+  window_size: 16
+  val_freq: !!float 2e4
+  save_img: false
+  rgb2bgr: true
+  use_image: false
+
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+
+# logging settings
+logger:
+  print_freq: 100
+  save_checkpoint_freq: !!float 5e4
+  use_tb_logger: true
+  wandb:
+    project: ~
+    resume_id: ~
