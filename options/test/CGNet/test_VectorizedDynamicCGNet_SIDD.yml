@@ -1,4 +1,4 @@
-name: test_VectorizedDynamicCGNet_SIDD
+name: test__TrueCGNet_SIDD
 model_type: CGNetModel
 scale: 1
 num_gpu: 1
@@ -15,18 +15,16 @@ datasets:
 
 # network structures
 network_g:
-  type: VectorizedDynamicCGNet
+  type: TrueCascadeCGNet
   img_channel: 3
-  width: 32
+  width: 60
   middle_blk_num: 10
   enc_blk_nums: [2, 2, 4, 6]
   dec_blk_nums: [2, 2, 2, 2]
-  context_num_scales: 4
-  context_max_radius: 4
 
 # path
 path:
-  pretrain_network_g: experiments/train_VectorizedDynamicCGNet_SIDD/models/net_g_latest.pth
+  pretrain_network_g: experiments/train_CGNet_SIDD/models/net_g_latest.pth
   strict_load_g: true
 
 # validation settings
