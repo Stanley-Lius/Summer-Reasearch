@@ -102,14 +102,38 @@ class CGNetModel(SRModel):
         self.log_dict = self.reduce_loss_dict(loss_dict)
 
     def test(self):
-        """Test forward pass with automatic extraction of final head if output is a list."""
+        """Test forward pass with automatic extraction of final head if output is a list, 
+        and arbitrary resolution reflection padding."""
+        window_size = self.opt.get('val', {}).get('window_size', 0)
+        
         self.net_g.eval()
+        
+        if window_size > 0:
+            scale = self.opt.get('scale', 1)
+            mod_pad_h, mod_pad_w = 0, 0
+            _, _, h, w = self.lq.size()
+            if h % window_size != 0:
+                mod_pad_h = window_size - h % window_size
+            if w % window_size != 0:
+                mod_pad_w = window_size - w % window_size
+                
+            img = F.pad(self.lq, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
+        else:
+            img = self.lq
+
         with torch.no_grad():
-            preds = self.net_g(self.lq)
+            preds = self.net_g(img)
             if isinstance(preds, (list, tuple)):
-                self.output = preds[-1]
+                output = preds[-1]
             else:
-                self.output = preds
+                output = preds
+
+        if window_size > 0:
+            _, _, out_h, out_w = output.size()
+            self.output = output[:, :, 0:out_h - mod_pad_h * scale, 0:out_w - mod_pad_w * scale]
+        else:
+            self.output = output
+            
         self.net_g.train()
 
 
