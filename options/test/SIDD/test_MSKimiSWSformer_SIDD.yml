@@ -1,0 +1,48 @@
+name: test_MSKimiSWSformer_SIDD
+model_type: ImageRestorationModel
+scale: 1
+num_gpu: 1
+manual_seed: 100
+
+datasets:
+  test_1:
+    name: SIDD_Val
+    type: PairedImageDataset
+    dataroot_gt: ./SIDD/val/gt_crops.lmdb
+    dataroot_lq: ./SIDD/val/input_crops.lmdb
+    io_backend:
+      type: lmdb
+
+# network structures
+network_g:
+  type: MSKimiSWSformer
+  width: 32
+  enc_blk_nums: [2, 2, 4, 6] 
+  middle_blk_num: 4
+  dec_blk_nums: [2, 2, 2, 2]
+  win_size: 16
+  sub_win_sizes: [8, 4]
+  nwc_ks: [7, 5, 3, 3, 3]
+  num_heads: [1, 2, 4, 8, 16]
+
+# path
+path:
+  pretrain_network_g: experiments/train_MSKimiSWSformer_SIDD/models/net_g_latest.pth
+  strict_load_g: true
+
+# validation settings
+val:
+  suffix: ~
+  window_size: 16
+  save_img: true
+  rgb2bgr: true
+  use_image: false
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: false
