@@ -311,3 +311,91 @@ to_2tuple = _ntuple(2)
 to_3tuple = _ntuple(3)
 to_4tuple = _ntuple(4)
 to_ntuple = _ntuple
+
+class LayerNormFunction(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, x, weight, bias, eps):
+        ctx.eps = eps
+        N, C, H, W = x.size()
+        mu = x.mean(1, keepdim=True)
+        var = (x - mu).pow(2).mean(1, keepdim=True)
+        y = (x - mu) / (var + eps).sqrt()
+        ctx.save_for_backward(y, var, weight)
+        y = weight.view(1, C, 1, 1) * y + bias.view(1, C, 1, 1)
+        return y
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        eps = ctx.eps
+
+        N, C, H, W = grad_output.size()
+        y, var, weight = ctx.saved_variables
+        g = grad_output * weight.view(1, C, 1, 1)
+        mean_g = g.mean(dim=1, keepdim=True)
+
+        mean_gy = (g * y).mean(dim=1, keepdim=True)
+        gx = 1. / torch.sqrt(var + eps) * (g - y * mean_gy - mean_g)
+        return gx, (grad_output * y).sum(dim=3).sum(dim=2).sum(dim=0), grad_output.sum(dim=3).sum(dim=2).sum(
+            dim=0), None
+
+class LayerNorm2d(nn.Module):
+
+    def __init__(self, channels, eps=1e-6):
+        super(LayerNorm2d, self).__init__()
+        self.register_parameter('weight', nn.Parameter(torch.ones(channels)))
+        self.register_parameter('bias', nn.Parameter(torch.zeros(channels)))
+        self.eps = eps
+
+    def forward(self, x):
+        return LayerNormFunction.apply(x, self.weight, self.bias, self.eps)
+
+# handle multiple input
+class MySequential(nn.Sequential):
+    def forward(self, *inputs):
+        for module in self._modules.values():
+            if type(inputs) == tuple:
+                inputs = module(*inputs)
+            else:
+                inputs = module(inputs)
+        return inputs
+
+import time
+def measure_inference_speed(model, data, max_iter=200, log_interval=50):
+    model.eval()
+
+    # the first several iterations may be very slow so skip them
+    num_warmup = 5
+    pure_inf_time = 0
+    fps = 0
+
+    # benchmark with 2000 image and take the average
+    for i in range(max_iter):
+
+        torch.cuda.synchronize()
+        start_time = time.perf_counter()
+
+        with torch.no_grad():
+            model(*data)
+
+        torch.cuda.synchronize()
+        elapsed = time.perf_counter() - start_time
+
+        if i >= num_warmup:
+            pure_inf_time += elapsed
+            if (i + 1) % log_interval == 0:
+                fps = (i + 1 - num_warmup) / pure_inf_time
+                print(
+                    f'Done image [{i + 1:<3}/ {max_iter}], '
+                    f'fps: {fps:.1f} img / s, '
+                    f'times per image: {1000 / fps:.1f} ms / img',
+                    flush=True)
+
+        if (i + 1) == max_iter:
+            fps = (i + 1 - num_warmup) / pure_inf_time
+            print(
+                f'Overall fps: {fps:.1f} img / s, '
+                f'times per image: {1000 / fps:.1f} ms / img',
+                flush=True)
+            break
+    return fps

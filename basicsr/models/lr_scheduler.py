@@ -96,3 +96,69 @@ class CosineAnnealingRestartLR(_LRScheduler):
             (1 + math.cos(math.pi * ((self.last_epoch - nearest_restart) / current_period)))
             for base_lr in self.base_lrs
         ]
+
+class LinearLR(_LRScheduler):
+    """
+
+    Args:
+        optimizer (torch.nn.optimizer): Torch optimizer.
+        milestones (list): Iterations that will decrease learning rate.
+        gamma (float): Decrease ratio. Default: 0.1.
+        last_epoch (int): Used in _LRScheduler. Default: -1.
+    """
+
+    def __init__(self,
+                 optimizer,
+                 total_iter,
+                 last_epoch=-1):
+        self.total_iter = total_iter
+        super(LinearLR, self).__init__(optimizer, last_epoch)
+
+    def get_lr(self):
+        process = self.last_epoch / self.total_iter
+        weight = (1 - process)
+        # print('get lr ', [weight * group['initial_lr'] for group in self.optimizer.param_groups])
+        return [weight * group['initial_lr'] for group in self.optimizer.param_groups]
+
+class VibrateLR(_LRScheduler):
+    """
+
+    Args:
+        optimizer (torch.nn.optimizer): Torch optimizer.
+        milestones (list): Iterations that will decrease learning rate.
+        gamma (float): Decrease ratio. Default: 0.1.
+        last_epoch (int): Used in _LRScheduler. Default: -1.
+    """
+
+    def __init__(self,
+                 optimizer,
+                 total_iter,
+                 last_epoch=-1):
+        self.total_iter = total_iter
+        super(VibrateLR, self).__init__(optimizer, last_epoch)
+
+    def get_lr(self):
+        process = self.last_epoch / self.total_iter
+
+        f = 0.1
+        if process < 3 / 8:
+            f = 1 - process * 8 / 3
+        elif process < 5 / 8:
+            f = 0.2
+
+        T = self.total_iter // 80
+        Th = T // 2
+
+        t = self.last_epoch % T
+
+        f2 = t / Th
+        if t >= Th:
+            f2 = 2 - f2
+
+        weight = f * f2
+
+        if self.last_epoch < Th:
+            weight = max(0.1, weight)
+
+        # print('f {}, T {}, Th {}, t {}, f2 {}'.format(f, T, Th, t, f2))
+        return [weight * group['initial_lr'] for group in self.optimizer.param_groups]

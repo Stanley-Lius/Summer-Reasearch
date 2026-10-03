@@ -81,7 +81,9 @@ class PairedImageDataset(data.Dataset):
             # random crop
             img_gt, img_lq = paired_random_crop(img_gt, img_lq, gt_size, scale, gt_path)
             # flip, rotation
-            img_gt, img_lq = augment([img_gt, img_lq], self.opt['use_hflip'], self.opt['use_rot'])
+            use_hflip = self.opt.get('use_hflip', True)
+            use_rot = self.opt.get('use_rot', True)
+            img_gt, img_lq = augment([img_gt, img_lq], use_hflip, use_rot)
 
         # color space transform
         if 'color' in self.opt and self.opt['color'] == 'y':

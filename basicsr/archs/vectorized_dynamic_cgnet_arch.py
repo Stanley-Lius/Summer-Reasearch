@@ -319,3 +319,17 @@ class VectorizedDynamicCGNet(nn.Module):
         if mod_pad_h != 0 or mod_pad_w != 0:
             x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), mode='reflect')
         return x
+
+if __name__ == '__main__':
+    from basicsr.utils.flop_util import calculate_flops
+    
+    net = VectorizedDynamicCGNet(
+        img_channel=3, 
+        width=16, 
+        middle_blk_num=1,
+        enc_blk_nums=[1, 1, 1, 1], 
+        dec_blk_nums=[1, 1, 1, 1]
+    )
+    
+    print("Testing VectorizedDynamicCGNet FLOPs...")
+    calculate_flops(net, input_shape=(3, 256, 256))

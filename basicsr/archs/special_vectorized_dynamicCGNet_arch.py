@@ -397,7 +397,7 @@ class SpatialGateDynamicGazeBlock(nn.Module):
 
 
 @ARCH_REGISTRY.register()
-class SpatialGateVectorizedCGNet(CGNetUNetBase):
+class SpecialVectorizedDynamicCGNet(CGNetUNetBase):
     """VectorizedDynamicCGNet with SpatialGate / AnchorRow / StatCond /
     LearnableTau / Bilinear fixes.
 

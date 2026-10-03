@@ -126,6 +126,15 @@ class BaseModel():
         if scheduler_type in ['MultiStepLR', 'MultiStepRestartLR']:
             for optimizer in self.optimizers:
                 self.schedulers.append(lr_scheduler.MultiStepRestartLR(optimizer, **train_opt['scheduler']))
+        elif scheduler_type == 'TrueCosineAnnealingLR':
+            for optimizer in self.optimizers:
+                self.schedulers.append(torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, **train_opt['scheduler']))
+        elif scheduler_type == 'LinearLR':
+            for optimizer in self.optimizers:
+                self.schedulers.append(lr_scheduler.LinearLR(optimizer, **train_opt['scheduler']))
+        elif scheduler_type == 'VibrateLR':
+            for optimizer in self.optimizers:
+                self.schedulers.append(lr_scheduler.VibrateLR(optimizer, **train_opt['scheduler']))
         elif scheduler_type == 'CosineAnnealingRestartLR':
             for optimizer in self.optimizers:
                 self.schedulers.append(lr_scheduler.CosineAnnealingRestartLR(optimizer, **train_opt['scheduler']))
