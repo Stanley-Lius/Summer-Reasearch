@@ -65,12 +65,15 @@ class BidirectionalKimiDeltaAttention(nn.Module):
 
         q = q.unsqueeze(3).expand(B, sub_nW, nW, N, -1).reshape(B, sub_nW, seq_len, -1)
 
+        # 改變維度（攤平）
         q = q.view(B * sub_nW, seq_len, -1)
         k = k.view(B * sub_nW, seq_len, -1)
         v = v.view(B * sub_nW, seq_len, -1)
         hidden_states = x_unp_flat.view(B * sub_nW, seq_len, C)
 
         # 3. Gates
+
+        # attention gate
         g = self.f_b_proj(self.f_a_proj(hidden_states))
         g = rearrange(g, 'b t (h d) -> b t h d', h=self.num_heads)
         
