@@ -15,9 +15,9 @@ datasets:
 
 network_g:
   type: LiteKimiSWSformer
-  width: 24
-  enc_blk_nums: [2, 2, 4, 6]
-  middle_blk_num: 4
+  width: 64
+  enc_blk_nums: [2, 2, 4, 8]
+  middle_blk_num: 8
   dec_blk_nums: [2, 2, 2, 2]
   win_size: 16
   sub_win_size: 8
@@ -25,7 +25,7 @@ network_g:
   num_heads: [1, 2, 4, 8, 16]
 
 path:
-  pretrain_network_g: experiments/train_KimiSWSformer_SIDD/models/net_g_1530000.pth
+  pretrain_network_g: experiments/train_LiteKimiSWSformer_SIDD/models/net_g_latest.pth
   strict_load_g: true
 
 val:
