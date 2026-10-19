@@ -58,7 +58,8 @@ class CGNetModel(SRModel):
         self.grad_clip_norm = train_opt.get('grad_clip_norm', 0.01)
 
     def optimize_parameters(self, current_iter):
-        self.optimizer_g.zero_grad()
+        if not self.use_grad_accum or (current_iter - 1) % self.accum_iter == 0:
+            self.optimizer_g.zero_grad()
 
         # Apply Mixup Augmentation if configured
         if self.mixing_flag and self.gt is not None:
@@ -92,13 +93,21 @@ class CGNetModel(SRModel):
                 l_total += l_style
                 loss_dict['l_style'] = l_style
 
-        l_total.backward()
+        loss_to_backward = l_total / self.accum_iter if self.use_grad_accum else l_total
+        loss_to_backward.backward()
 
-        # Apply gradient clipping if enabled
-        if self.use_grad_clip:
-            torch.nn.utils.clip_grad_norm_(self.net_g.parameters(), self.grad_clip_norm)
+        total_iter = self.opt.get('train', {}).get('total_iter', -1)
+        if not self.use_grad_accum or current_iter % self.accum_iter == 0 or current_iter == total_iter:
+            # Apply gradient clipping if enabled
+            if self.use_grad_clip:
+                torch.nn.utils.clip_grad_norm_(self.net_g.parameters(), self.grad_clip_norm)
 
-        self.optimizer_g.step()
+            self.optimizer_g.step()
+            if self.use_grad_accum:
+                self.optimizer_g.zero_grad()
+            if getattr(self, 'ema_decay', 0) > 0:
+                self.model_ema(decay=self.ema_decay)
+
         self.log_dict = self.reduce_loss_dict(loss_dict)
 
     def test(self):

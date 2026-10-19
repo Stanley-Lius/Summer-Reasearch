@@ -70,6 +70,16 @@ class SRModel(BaseModel):
         self.setup_optimizers()
         self.setup_schedulers()
 
+        # Gradient accumulation settings
+        raw_accum = int(train_opt.get('accum_iter', train_opt.get('grad_accum_steps', 1)))
+        use_grad_accum = train_opt.get('use_grad_accum', raw_accum > 1)
+        self.use_grad_accum = bool(use_grad_accum) and (raw_accum > 1)
+        self.accum_iter = raw_accum if self.use_grad_accum else 1
+        if self.use_grad_accum:
+            logger = get_root_logger()
+            logger.info(f'Use Gradient Accumulation with accum_iter: {self.accum_iter}')
+        self.optimizer_g.zero_grad()
+
     def setup_optimizers(self):
         train_opt = self.opt['train']
         optim_params = []
@@ -90,7 +100,8 @@ class SRModel(BaseModel):
             self.gt = data['gt'].to(self.device)
 
     def optimize_parameters(self, current_iter):
-        self.optimizer_g.zero_grad()
+        if not self.use_grad_accum or (current_iter - 1) % self.accum_iter == 0:
+            self.optimizer_g.zero_grad()
         self.output = self.net_g(self.lq)
 
         l_total = 0
@@ -110,13 +121,18 @@ class SRModel(BaseModel):
                 l_total += l_style
                 loss_dict['l_style'] = l_style
 
-        l_total.backward()
-        self.optimizer_g.step()
+        loss_to_backward = l_total / self.accum_iter if self.use_grad_accum else l_total
+        loss_to_backward.backward()
+
+        total_iter = self.opt.get('train', {}).get('total_iter', -1)
+        if not self.use_grad_accum or current_iter % self.accum_iter == 0 or current_iter == total_iter:
+            self.optimizer_g.step()
+            if self.use_grad_accum:
+                self.optimizer_g.zero_grad()
+            if self.ema_decay > 0:
+                self.model_ema(decay=self.ema_decay)
 
         self.log_dict = self.reduce_loss_dict(loss_dict)
-
-        if self.ema_decay > 0:
-            self.model_ema(decay=self.ema_decay)
 
     def test(self):
         if hasattr(self, 'net_g_ema'):
