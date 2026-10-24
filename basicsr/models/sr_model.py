@@ -70,11 +70,13 @@ class SRModel(BaseModel):
         self.setup_optimizers()
         self.setup_schedulers()
 
-        # Gradient accumulation settings
+        # Gradient accumulation & clipping settings
         raw_accum = int(train_opt.get('accum_iter', train_opt.get('grad_accum_steps', 1)))
         use_grad_accum = train_opt.get('use_grad_accum', raw_accum > 1)
         self.use_grad_accum = bool(use_grad_accum) and (raw_accum > 1)
         self.accum_iter = raw_accum if self.use_grad_accum else 1
+        self.use_grad_clip = train_opt.get('use_grad_clip', False)
+        self.grad_clip_norm = train_opt.get('grad_clip_norm', 0.01)
         if self.use_grad_accum:
             logger = get_root_logger()
             logger.info(f'Use Gradient Accumulation with accum_iter: {self.accum_iter}')
@@ -126,6 +128,8 @@ class SRModel(BaseModel):
 
         total_iter = self.opt.get('train', {}).get('total_iter', -1)
         if not self.use_grad_accum or current_iter % self.accum_iter == 0 or current_iter == total_iter:
+            if self.use_grad_clip:
+                torch.nn.utils.clip_grad_norm_(self.net_g.parameters(), self.grad_clip_norm)
             self.optimizer_g.step()
             if self.use_grad_accum:
                 self.optimizer_g.zero_grad()

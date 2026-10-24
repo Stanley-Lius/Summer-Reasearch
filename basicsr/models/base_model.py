@@ -20,6 +20,12 @@ class BaseModel():
         self.schedulers = []
         self.optimizers = []
 
+        train_opt = opt.get('train', {}) if self.is_train else {}
+        raw_accum = int(train_opt.get('accum_iter', train_opt.get('grad_accum_steps', 1)))
+        use_grad_accum = train_opt.get('use_grad_accum', raw_accum > 1)
+        self.use_grad_accum = bool(use_grad_accum) and (raw_accum > 1)
+        self.accum_iter = raw_accum if self.use_grad_accum else 1
+
     def feed_data(self, data):
         pass
 
@@ -195,20 +201,37 @@ class BaseModel():
             warmup_iter (int)： Warm-up iter numbers. -1 for no warm-up.
                 Default： -1.
         """
-        if current_iter > 1:
-            for scheduler in self.schedulers:
-                scheduler.step()
-        # set up warm-up learning rate
-        if current_iter < warmup_iter:
-            # get initial lr for each group
-            init_lr_g_l = self._get_init_lr()
-            # modify warming-up learning rates
-            # currently only support linearly warm up
-            warm_up_lr_l = []
-            for init_lr_g in init_lr_g_l:
-                warm_up_lr_l.append([v / warmup_iter * current_iter for v in init_lr_g])
-            # set learning rate
-            self._set_lr(warm_up_lr_l)
+        if not getattr(self, 'use_grad_accum', False):
+            if current_iter > 1:
+                for scheduler in self.schedulers:
+                    scheduler.step()
+            # set up warm-up learning rate
+            if current_iter < warmup_iter:
+                # get initial lr for each group
+                init_lr_g_l = self._get_init_lr()
+                # modify warming-up learning rates
+                # currently only support linearly warm up
+                warm_up_lr_l = []
+                for init_lr_g in init_lr_g_l:
+                    warm_up_lr_l.append([v / warmup_iter * current_iter for v in init_lr_g])
+                # set learning rate
+                self._set_lr(warm_up_lr_l)
+        else:
+            if current_iter % self.accum_iter == 0:
+                if current_iter > self.accum_iter:
+                    for scheduler in self.schedulers:
+                        scheduler.step()
+                # set up warm-up learning rate
+                if current_iter < warmup_iter:
+                    # get initial lr for each group
+                    init_lr_g_l = self._get_init_lr()
+                    # modify warming-up learning rates
+                    # currently only support linearly warm up
+                    warm_up_lr_l = []
+                    for init_lr_g in init_lr_g_l:
+                        warm_up_lr_l.append([v / warmup_iter * current_iter for v in init_lr_g])
+                    # set learning rate
+                    self._set_lr(warm_up_lr_l)
 
     def get_current_learning_rate(self):
         return [param_group['lr'] for param_group in self.optimizers[0].param_groups]
