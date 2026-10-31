@@ -9,8 +9,8 @@ datasets:
   train:
     name: SIDD
     type: PairedImageDataset
-    dataroot_gt: SIDD/train/gt_crops.lmdb
-    dataroot_lq: SIDD/train/input_crops.lmdb
+    dataroot_gt: /media/stanley/AA5E237A5E233F07/BasicSR/SIDD/train/gt_crops.lmdb
+    dataroot_lq: /media/stanley/AA5E237A5E233F07/BasicSR/SIDD/train/input_crops.lmdb
     filename_tmpl: '{}'
     io_backend:
       type: lmdb
@@ -29,8 +29,8 @@ datasets:
   val:
     name: SIDD_val
     type: PairedImageDataset
-    dataroot_gt: SIDD/val/gt_crops.lmdb
-    dataroot_lq: SIDD/val/input_crops.lmdb
+    dataroot_gt: /media/stanley/AA5E237A5E233F07/BasicSR/SIDD/val/gt_crops.lmdb
+    dataroot_lq: /media/stanley/AA5E237A5E233F07/BasicSR/SIDD/val/input_crops.lmdb
     io_backend:
       type: lmdb
     use_hflip: true  # 是否使用水平翻轉

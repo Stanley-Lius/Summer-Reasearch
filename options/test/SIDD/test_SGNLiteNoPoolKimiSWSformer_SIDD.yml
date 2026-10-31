@@ -1,0 +1,46 @@
+name: test_SGNLiteNoPoolKimiSWSformer_SIDD
+model_type: ImageRestorationModel
+scale: 1
+num_gpu: 1
+manual_seed: 1111
+
+datasets:
+  test_1:
+    name: SIDD_val
+    type: PairedImageDataset
+    dataroot_gt: SIDD/val/gt_crops.lmdb
+    dataroot_lq: SIDD/val/input_crops.lmdb
+    io_backend:
+      type: lmdb
+
+network_g:
+  type: SGNLiteNoPoolKimiSWSformer
+  width: 64
+  enc_blk_nums: [2, 2, 4, 8]
+  middle_blk_num: 8
+  dec_blk_nums: [2, 2, 2, 2]
+  win_size: 16
+  sub_win_size: 8
+  nwc_ks: [7, 5, 3, 3, 3]
+  num_heads: [1, 2, 4, 8, 16]
+  num_tokens: 64
+
+path:
+  pretrain_network_g: experiments/train_SGNLiteNoPoolKimiSWSformer_SIDD/models/net_g_latest.pth
+  strict_load_g: true
+
+val:
+  suffix: ~
+  window_size: 16
+  save_img: true
+  rgb2bgr: true
+  use_image: false
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: false

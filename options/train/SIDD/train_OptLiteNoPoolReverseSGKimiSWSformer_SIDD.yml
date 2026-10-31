@@ -1,0 +1,107 @@
+# general settings
+name: train_OptLiteNoPoolReverseSGKimiSWSformer_SIDD
+model_type: ImageRestorationModel
+scale: 1
+num_gpu: 1
+manual_seed: 1111
+
+datasets:
+  train:
+    name: SIDD
+    type: PairedImageDataset
+    dataroot_gt: /media/stanley/AA5E237A5E233F07/BasicSR/SIDD/train/gt_crops.lmdb
+    dataroot_lq: /media/stanley/AA5E237A5E233F07/BasicSR/SIDD/train/input_crops.lmdb
+    filename_tmpl: '{}'
+    io_backend:
+      type: lmdb
+
+    gt_size: 256
+    use_flip: false
+    use_rot: false
+
+    # data loader
+    use_shuffle: true
+    num_worker_per_gpu: 10
+    batch_size_per_gpu: 2
+    dataset_enlarge_ratio: 1
+    prefetch_mode: ~
+
+  val:
+    name: SIDD_val
+    type: PairedImageDataset
+    dataroot_gt: /media/stanley/AA5E237A5E233F07/BasicSR/SIDD/val/gt_crops.lmdb
+    dataroot_lq: /media/stanley/AA5E237A5E233F07/BasicSR/SIDD/val/input_crops.lmdb
+    io_backend:
+      type: lmdb
+    use_hflip: true
+    use_rot: true
+
+
+network_g:
+  type: OptLiteNoPoolReverseSGKimiSWSformer
+  width: 64
+  enc_blk_nums: [2, 2, 4, 6]
+  middle_blk_num: 6
+  dec_blk_nums: [2, 2, 2, 2]
+  win_size: 16
+  sub_win_size: 8
+  nwc_ks: [7, 5, 3, 3, 3]
+  num_heads: [1, 2, 4, 8, 16]
+
+# path
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+  resume_state: ~
+
+# training settings
+train:
+  optim_g:
+    type: AdamW
+    lr: !!float 5e-4
+    weight_decay: 0.
+    betas: [0.9, 0.9]
+
+  scheduler:
+    type: TrueCosineAnnealingLR
+    T_max: 816212
+    eta_min: !!float 1e-7
+
+  total_iter: 816212
+  warmup_iter: -1 # no warm up
+
+  # losses
+  pixel_opt:
+    type: PSNRLoss
+    loss_weight: 1
+    reduction: mean
+
+# validation settings
+val:
+  val_freq: !!float 50000
+  save_img: false
+  use_image: false
+
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: false
+
+# logging settings
+logger:
+  print_freq: 1000
+  save_checkpoint_freq: 5000
+  use_tb_logger: true
+  wandb:
+    project: ~
+    resume_id: ~
+
+# dist training settings
+dist_params:
+  backend: nccl
+  port: 29500
