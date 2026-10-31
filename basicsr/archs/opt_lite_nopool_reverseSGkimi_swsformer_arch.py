@@ -1,10 +1,13 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 from einops import rearrange
+import math
 
 from basicsr.archs.arch_util import LayerNorm2d
 from basicsr.utils.registry import ARCH_REGISTRY
+from basicsr.utils.softmax_util import softmax
 from basicsr.archs.SWSformer_arch import PEG
 
 try:
@@ -13,6 +16,8 @@ try:
     from fla.ops.kda.gate import fused_kda_gate
 except ImportError:
     pass
+
+from transformers.activations import ACT2FN
 
 
 class SimpleGate(nn.Module):
@@ -23,10 +28,11 @@ class SimpleGate(nn.Module):
 
 class NoPoolBidirectionalKimiDeltaAttention(nn.Module):
     """
-    Optimized Lite-Kimi-Linear (KDA) adapted for Vision:
+    Lite-Kimi-Linear (KDA) adapted for Vision:
     1. Pruned 1D ShortConvolutions (relies on PEG for 2D locality).
-    2. Fused QKV and FGB projections to minimize HBM memory reads and CUDA kernel launch overhead.
-    3. Channel-Split Bidirectional Sweep: splits head_dim in half with independent forward/backward beta gates.
+    2. Channel-Split Bidirectional Sweep: fused into a single batch-concatenated chunk_kda call
+       (bit-for-bit identical to two separate calls, halving Triton kernel launch overhead).
+    3. Gating and parameter structure remain 100% identical to the original architecture.
     """
     def __init__(self, c, num_heads):
         super().__init__()
@@ -35,20 +41,22 @@ class NoPoolBidirectionalKimiDeltaAttention(nn.Module):
         self.head_dim = c // num_heads
 
         projection_size = self.head_dim * self.num_heads
-        self.projection_size = projection_size
 
-        # Fused Q, K, V linear projection
-        self.qkv_proj = nn.Linear(self.hidden_size, 3 * projection_size, bias=False)
+        self.q_proj = nn.Linear(self.hidden_size, projection_size, bias=False)
+        self.k_proj = nn.Linear(self.hidden_size, projection_size, bias=False)
+        self.v_proj = nn.Linear(self.hidden_size, projection_size, bias=False)
 
         self.A_log = torch.nn.Parameter(
             torch.log(torch.empty(self.num_heads, dtype=torch.float32).uniform_(1, 16)).view(1, 1, -1, 1)
         )
 
-        # Fused f_a, g_a, and bidirectional beta (2 * num_heads) low-rank/gate input projection
-        self.fgb_proj = nn.Linear(self.hidden_size, 2 * self.head_dim + 2 * self.num_heads, bias=False)
+        self.f_a_proj = nn.Linear(self.hidden_size, self.head_dim, bias=False)
         self.f_b_proj = nn.Linear(self.head_dim, projection_size, bias=False)
         self.dt_bias = nn.Parameter(torch.zeros(projection_size, dtype=torch.float32))
 
+        self.b_proj = nn.Linear(self.hidden_size, self.num_heads, bias=False)
+
+        self.g_a_proj = nn.Linear(self.hidden_size, self.head_dim, bias=False)
         self.g_b_proj = nn.Linear(self.head_dim, projection_size, bias=False)
 
         self.o_norm = FusedRMSNormGated(self.head_dim, eps=1e-6, activation='sigmoid')
@@ -60,57 +68,53 @@ class NoPoolBidirectionalKimiDeltaAttention(nn.Module):
 
         hidden_states = x_unpooled.reshape(B * sub_nW, seq_len, C)
 
-        # 1. Fused Q, K, V projection + SiLU
-        qkv = F.silu(self.qkv_proj(hidden_states))
-        q, k, v = qkv.chunk(3, dim=-1)
+        q = F.silu(self.q_proj(hidden_states))
+        k = F.silu(self.k_proj(hidden_states))
+        v = F.silu(self.v_proj(hidden_states))
 
-        # 2. Fused Gates (f_a, g_a, bidirectional beta)
-        f_a, g_a, beta_raw = torch.split(
-            self.fgb_proj(hidden_states),
-            [self.head_dim, self.head_dim, 2 * self.num_heads],
-            dim=-1
-        )
-
-        g = self.f_b_proj(f_a)
+        # Gates
+        g = self.f_b_proj(self.f_a_proj(hidden_states))
         g = rearrange(g, 'b t (h d) -> b t h d', h=self.num_heads)
+
         A_log_flat = self.A_log.view(self.num_heads)
         g = fused_kda_gate(g, A_log_flat, dt_bias=self.dt_bias)
 
-        beta = beta_raw.float().sigmoid()
-        beta_f, beta_b = beta.chunk(2, dim=-1)
+        beta = self.b_proj(hidden_states).float().sigmoid()
 
         q = rearrange(q, 'b t (h d) -> b t h d', h=self.num_heads)
         k = rearrange(k, 'b t (h d) -> b t h d', h=self.num_heads)
         v = rearrange(v, 'b t (h d) -> b t h d', h=self.num_heads)
 
-        # 3. Channel Split (Split head_dim in half)
+        # Channel Split (Split head_dim in half)
         q_f, q_b = q.chunk(2, dim=-1)
         k_f, k_b = k.chunk(2, dim=-1)
         v_f, v_b = v.chunk(2, dim=-1)
         g_f, g_b = g.chunk(2, dim=-1)
 
-        # 4. Channel-Split Bidirectional Sweep
-        out_f, _ = chunk_kda(
-            q=q_f, k=k_f, v=v_f, g=g_f, beta=beta_f,
-            output_final_state=False, use_qk_l2norm_in_kernel=True
-        )
+        # Single-Call Channel-Split Bidirectional Sweep (contiguous batch-concatenation)
+        q_bi = torch.cat([q_f, torch.flip(q_b, dims=[1])], dim=0)
+        k_bi = torch.cat([k_f, torch.flip(k_b, dims=[1])], dim=0)
+        v_bi = torch.cat([v_f, torch.flip(v_b, dims=[1])], dim=0)
+        g_bi = torch.cat([g_f, torch.flip(g_b, dims=[1])], dim=0)
+        beta_bi = torch.cat([beta, torch.flip(beta, dims=[1])], dim=0)
 
-        out_b, _ = chunk_kda(
-            q=torch.flip(q_b, dims=[1]),
-            k=torch.flip(k_b, dims=[1]),
-            v=torch.flip(v_b, dims=[1]),
-            g=torch.flip(g_b, dims=[1]),
-            beta=torch.flip(beta_b, dims=[1]),
+        out_bi, _ = chunk_kda(
+            q=q_bi,
+            k=k_bi,
+            v=v_bi,
+            g=g_bi,
+            beta=beta_bi,
             output_final_state=False,
-            use_qk_l2norm_in_kernel=True
+            use_qk_l2norm_in_kernel=True,
         )
+        out_f, out_b = out_bi.chunk(2, dim=0)
         out_b = torch.flip(out_b, dims=[1])
 
         # Concat the halves back together
         o = torch.cat([out_f, out_b], dim=-1)
 
-        # 5. Output Norm & Projection
-        g_out = self.g_b_proj(g_a)
+        # Output Norm & Projection
+        g_out = self.g_b_proj(self.g_a_proj(hidden_states))
         g_out = rearrange(g_out, 'b t (h d) -> b t h d', d=self.head_dim)
         o = self.o_norm(o, g_out)
 
@@ -122,10 +126,10 @@ class NoPoolBidirectionalKimiDeltaAttention(nn.Module):
 
 class BidirectionalKimiMLAAttention(nn.Module):
     """
-    Optimized Lite-MLA (Full Softmax Attention) adapted for Vision:
+    Lite-MLA (Full Attention) adapted for Vision:
     1. Pruned 1D ShortConvolutions.
-    2. Fused KV projection and PyTorch native SDPA (FlashAttention / Memory-Efficient Attention).
-    3. Projects pooled output `o_pooled` BEFORE `.expand()`, reducing `o_proj` FLOPs by N-fold (e.g. 64x).
+    2. Optimized Q-Pooling & Output Projection: Computes attention using custom Softmax-Collapse-Safe
+       `softmax` and applies `o_proj` BEFORE expanding across N tokens to save N-fold FLOPs/VRAM.
     """
     def __init__(self, c, num_heads):
         super().__init__()
@@ -136,7 +140,10 @@ class BidirectionalKimiMLAAttention(nn.Module):
         projection_size = self.head_dim * self.num_heads
 
         self.q_proj = nn.Linear(self.hidden_size, projection_size, bias=False)
-        self.kv_proj = nn.Linear(self.hidden_size, 2 * projection_size, bias=False)
+        self.k_proj = nn.Linear(self.hidden_size, projection_size, bias=False)
+        self.v_proj = nn.Linear(self.hidden_size, projection_size, bias=False)
+
+        self.scale = self.head_dim ** -0.5
         self.o_proj = nn.Linear(projection_size, self.hidden_size, bias=False)
 
     def forward(self, x_pooled, x_unpooled):
@@ -147,19 +154,28 @@ class BidirectionalKimiMLAAttention(nn.Module):
 
         q = self.q_proj(x_pooled)  # (B, sub_nW, nW, D)
         x_unp_flat = x_unpooled.reshape(B, sub_nW, seq_len, C)
-        k, v = self.kv_proj(x_unp_flat).chunk(2, dim=-1)  # (B, sub_nW, seq_len, D)
+        k = self.k_proj(x_unp_flat)  # (B, sub_nW, seq_len, D)
+        v = self.v_proj(x_unp_flat)  # (B, sub_nW, seq_len, D)
 
-        q = rearrange(q, 'B s t (h d) -> (B s) h t d', h=self.num_heads)
-        k = rearrange(k, 'B s t (h d) -> (B s) h t d', h=self.num_heads)
-        v = rearrange(v, 'B s t (h d) -> (B s) h t d', h=self.num_heads)
+        q = q.view(B * sub_nW, nW, -1)
+        k = k.view(B * sub_nW, seq_len, -1)
+        v = v.view(B * sub_nW, seq_len, -1)
 
-        # Exact softmax attention via FlashAttention / SDPA
-        o_pooled = F.scaled_dot_product_attention(q, k, v)
-        o_pooled = rearrange(o_pooled, '(B s) h t d -> B s t (h d)', B=B)
+        q = rearrange(q, 'b t (h d) -> b h t d', h=self.num_heads)
+        k = rearrange(k, 'b t (h d) -> b h t d', h=self.num_heads)
+        v = rearrange(v, 'b t (h d) -> b h t d', h=self.num_heads)
 
-        # Apply o_proj BEFORE expanding along N to save N-fold FLOPs and memory copy
-        o_pooled = self.o_proj(o_pooled)  # (B, sub_nW, nW, C)
-        o = o_pooled.unsqueeze(-2).expand(B, sub_nW, nW, N, C)
+        # q @ k^T -> (B*sub_nW, H, nW, seq_len)
+        attn_weights = torch.matmul(q, k.transpose(-1, -2)) * self.scale
+        attn_weights = softmax(attn_weights, dim=-1)
+
+        # attn @ v -> (B*sub_nW, H, nW, D)
+        o_pooled = torch.matmul(attn_weights, v)
+        o_pooled = rearrange(o_pooled, 'b h t d -> b t (h d)')  # (B*sub_nW, nW, D)
+
+        # Project BEFORE expanding to N tokens (mathematically identical, N-fold fewer FLOPs)
+        o_pooled = self.o_proj(o_pooled)  # (B*sub_nW, nW, C)
+        o = o_pooled.view(B, sub_nW, nW, 1, C).expand(B, sub_nW, nW, N, C)
 
         return o
 
@@ -184,8 +200,7 @@ class NoPoolCustomKimiVisionAttention(nn.Module):
         win_w += (sub_win_w - win_w % sub_win_w) % sub_win_w
         mod_pad_h, mod_pad_w = (win_h - h % win_h) % win_h, (win_w - w % win_w) % win_w
         if mod_pad_h > 0 or mod_pad_w > 0:
-            pad_mode = 'reflect' if (mod_pad_w < w and mod_pad_h < h) else 'replicate'
-            x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), mode=pad_mode)
+            x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h))
         return x, (win_h, win_w), (sub_win_h, sub_win_w), x.shape[2] // win_h
 
     def forward(self, x):
@@ -238,12 +253,19 @@ class LiteNoPoolKimiSWSBlock(nn.Module):
         self.alpha = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
         self.gamma = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
 
-    def forward(self, inp):
-        y = inp + self.attn(self.pos_block(self.norm1(inp))) * self.beta
-        y = y + self.nwc(self.norm2(y)) * self.alpha
+    def _ffn_forward(self, y):
         x = self.conv4(self.norm3(y))
         x = self.sg(x)
         x = self.conv5(x)
+        return x
+
+    def forward(self, inp):
+        y = inp + self.attn(self.pos_block(self.norm1(inp))) * self.beta
+        y = y + self.nwc(self.norm2(y)) * self.alpha
+        if self.training and y.requires_grad:
+            x = checkpoint(self._ffn_forward, y, use_reentrant=False)
+        else:
+            x = self._ffn_forward(y)
         y = y + x * self.gamma
         return y
 
@@ -283,11 +305,7 @@ class OptLiteNoPoolReverseSGKimiSWSformer(nn.Module):
         B, C, H, W = inp.shape
         pad_h = (self.padder_size - H % self.padder_size) % self.padder_size
         pad_w = (self.padder_size - W % self.padder_size) % self.padder_size
-        if pad_h > 0 or pad_w > 0:
-            pad_mode = 'reflect' if (pad_w < W and pad_h < H) else 'replicate'
-            inp_padded = F.pad(inp, (0, pad_w, 0, pad_h), mode=pad_mode)
-        else:
-            inp_padded = inp
+        inp_padded = F.pad(inp, (0, pad_w, 0, pad_h)) if (pad_h > 0 or pad_w > 0) else inp
 
         x = self.intro(inp_padded)
         encs = []
