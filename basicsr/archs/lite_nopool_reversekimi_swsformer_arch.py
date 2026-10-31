@@ -6,6 +6,7 @@ import math
 
 from basicsr.archs.arch_util import LayerNorm2d
 from basicsr.utils.registry import ARCH_REGISTRY
+from basicsr.utils.softmax_util import softmax
 from basicsr.archs.SWSformer_arch import PEG, FeedForward
 
 try:
@@ -166,7 +167,7 @@ class BidirectionalKimiMLAAttention(nn.Module):
         # q @ k^T -> (B*sub_nW, H, nW, seq_len)
         # Instead of computing (seq_len, seq_len), this is 64x smaller!
         attn_weights = torch.matmul(q, k.transpose(-1, -2)) * self.scale
-        attn_weights = F.softmax(attn_weights, dim=-1)
+        attn_weights = softmax(attn_weights, dim=-1)
 
         # attn @ v -> (B*sub_nW, H, nW, D)
         o_pooled = torch.matmul(attn_weights, v)

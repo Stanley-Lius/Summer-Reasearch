@@ -6,7 +6,7 @@ from copy import deepcopy
 from torch.nn.parallel import DataParallel, DistributedDataParallel
 
 from basicsr.models import lr_scheduler as lr_scheduler
-from basicsr.utils import get_root_logger
+from basicsr.utils import AttentionDistanceMonitor, get_root_logger
 from basicsr.utils.dist_util import master_only
 
 
@@ -25,6 +25,22 @@ class BaseModel():
         use_grad_accum = train_opt.get('use_grad_accum', raw_accum > 1)
         self.use_grad_accum = bool(use_grad_accum) and (raw_accum > 1)
         self.accum_iter = raw_accum if self.use_grad_accum else 1
+        self._train_attn_monitor = None
+        self._train_attn_iter = None
+
+    def _get_attn_distance_opt(self):
+        raw = (
+            self.opt.get('val', {}).get('attn_distance')
+            or self.opt.get('attn_distance')
+            or (self.opt.get('train', {}).get('attn_distance') if self.is_train else None)
+        )
+        if not raw:
+            return None
+        if isinstance(raw, bool):
+            return {'enable': True}
+        if isinstance(raw, dict) and raw.get('enable', True):
+            return raw
+        return None
 
     def feed_data(self, data):
         pass
@@ -48,10 +64,25 @@ class BaseModel():
             tb_logger (tensorboard logger): Tensorboard logger.
             save_img (bool): Whether to save images. Default: False.
         """
-        if self.opt['dist']:
-            self.dist_validation(dataloader, current_iter, tb_logger, save_img)
-        else:
-            self.nondist_validation(dataloader, current_iter, tb_logger, save_img)
+        attn_opt = self._get_attn_distance_opt()
+        monitor = None
+        if attn_opt is not None and self.opt.get('rank', 0) == 0:
+            nets = [getattr(self, 'net_g', None), getattr(self, 'net_g_ema', None)]
+            monitor = AttentionDistanceMonitor(nets, attn_opt)
+
+        try:
+            if self.opt['dist']:
+                self.dist_validation(dataloader, current_iter, tb_logger, save_img)
+            else:
+                self.nondist_validation(dataloader, current_iter, tb_logger, save_img)
+        finally:
+            if monitor is not None:
+                dataset_name = getattr(getattr(dataloader, 'dataset', None), 'opt', {}).get('name', 'val')
+                save_dir = self.opt.get('path', {}).get('visualization')
+                monitor.finalize_and_save(
+                    save_dir=save_dir, tag=dataset_name, current_iter=current_iter, tb_logger=tb_logger
+                )
+                monitor.close()
 
     def _initialize_best_metric_results(self, dataset_name):
         """Initialize the best metric results dict for recording the best metric value and iteration."""
@@ -232,6 +263,16 @@ class BaseModel():
                         warm_up_lr_l.append([v / warmup_iter * current_iter for v in init_lr_g])
                     # set learning rate
                     self._set_lr(warm_up_lr_l)
+
+        attn_opt = self._get_attn_distance_opt()
+        train_freq = int(attn_opt.get('train_freq', 0)) if attn_opt else 0
+        if self.is_train and train_freq > 0 and current_iter % train_freq == 0 and self.opt.get('rank', 0) == 0:
+            if self._train_attn_monitor is not None:
+                self._train_attn_monitor.close()
+            self._train_attn_monitor = AttentionDistanceMonitor(
+                getattr(self, 'net_g', None), {**attn_opt, 'max_images': 1}
+            )
+            self._train_attn_iter = current_iter
 
     def get_current_learning_rate(self):
         return [param_group['lr'] for param_group in self.optimizers[0].param_groups]
@@ -420,5 +461,15 @@ class BaseModel():
             log_dict = OrderedDict()
             for name, value in loss_dict.items():
                 log_dict[name] = value.mean().item()
+
+            if self._train_attn_monitor is not None:
+                save_dir = self.opt.get('path', {}).get('visualization')
+                res = self._train_attn_monitor.finalize_and_save(
+                    save_dir=save_dir, tag='train', current_iter=self._train_attn_iter
+                )
+                self._train_attn_monitor.close()
+                self._train_attn_monitor = None
+                if res is not None:
+                    log_dict['D_bar'] = res['overall_mean']
 
             return log_dict

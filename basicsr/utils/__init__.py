@@ -7,6 +7,24 @@ from .logger import AvgTimer, MessageLogger, get_env_info, get_root_logger, init
 from .misc import check_resume, get_time_str, make_exp_dirs, mkdir_and_rename, scandir, set_random_seed, sizeof_fmt
 from .options import yaml_load
 from .flop_util import calculate_flops
+from .attn_distance_util import (
+    AttentionDistanceMonitor,
+    build_2d_coords,
+    build_sws_coords,
+    compute_pixel_attention_distance,
+    plot_attention_distance,
+    plot_spatial_attention_distance_map,
+)
+from .softmax_util import (
+    GumbelSoftmax,
+    LogSoftmax,
+    Softmax,
+    cross_entropy,
+    gumbel_softmax,
+    log_softmax,
+    soft_target_cross_entropy,
+    softmax,
+)
 
 __all__ = [
     #  color_util.py
@@ -47,5 +65,21 @@ __all__ = [
     # options
     'yaml_load',
     # flop_util
-    'calculate_flops'
+    'calculate_flops',
+    # attn_distance_util
+    'AttentionDistanceMonitor',
+    'build_2d_coords',
+    'build_sws_coords',
+    'compute_pixel_attention_distance',
+    'plot_attention_distance',
+    'plot_spatial_attention_distance_map',
+    # softmax_util
+    'log_softmax',
+    'softmax',
+    'gumbel_softmax',
+    'cross_entropy',
+    'soft_target_cross_entropy',
+    'LogSoftmax',
+    'Softmax',
+    'GumbelSoftmax'
 ]
