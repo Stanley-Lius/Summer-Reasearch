@@ -22,7 +22,7 @@ datasets:
     # data loader
     use_shuffle: true
     num_worker_per_gpu: 10
-    batch_size_per_gpu: 2
+    batch_size_per_gpu: 3
     dataset_enlarge_ratio: 1
     prefetch_mode: ~
 
@@ -40,8 +40,8 @@ datasets:
 network_g:
   type: OptLiteNoPoolReverseSGKimiSWSformer
   width: 64
-  enc_blk_nums: [2, 2, 4, 6]
-  middle_blk_num: 6
+  enc_blk_nums: [2, 2, 4, 8]
+  middle_blk_num: 12
   dec_blk_nums: [2, 2, 2, 2]
   win_size: 16
   sub_win_size: 8

@@ -16,8 +16,8 @@ datasets:
 network_g:
   type: OptLiteNoPoolReverseSGKimiSWSformer
   width: 64
-  enc_blk_nums: [2, 2, 4, 6]
-  middle_blk_num: 6
+  enc_blk_nums: [2, 2, 4, 8]
+  middle_blk_num: 8
   dec_blk_nums: [2, 2, 2, 2]
   win_size: 16
   sub_win_size: 8
